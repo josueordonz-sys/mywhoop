@@ -3,10 +3,10 @@ import './style.css';
 
 const WHOOP_SERVICE = '61080001-8d6d-82b8-614a-1c8cb0f8dcc6';
 const WHOOP_DATA = '61080005-8d6d-82b8-614a-1c8cb0f8dcc6';
-const HR_SERVICE = '180d';
-const HR_CHAR = '2a37';
-const BATTERY_SERVICE = '180f';
-const BATTERY_CHAR = '2a19';
+const HR_SERVICE = '0000180d-0000-1000-8000-00805f9b34fb';
+const HR_CHAR = '00002a37-0000-1000-8000-00805f9b34fb';
+const BATTERY_SERVICE = '0000180f-0000-1000-8000-00805f9b34fb';
+const BATTERY_CHAR = '00002a19-0000-1000-8000-00805f9b34fb';
 const env = (import.meta as any).env ?? {};
 const supabaseUrl = env.VITE_SUPABASE_URL as string | undefined;
 const supabaseKey = (env.VITE_SUPABASE_PUBLISHABLE_KEY ?? env.VITE_SUPABASE_ANON_KEY) as string | undefined;
