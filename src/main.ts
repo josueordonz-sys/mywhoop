@@ -222,7 +222,7 @@ $('auth-form').addEventListener('submit', async event => {
   event.preventDefault();
   const email = ($('email') as HTMLInputElement).value.trim(); const password = ($('password') as HTMLInputElement).value;
   const message = $('auth-message'); const submit = $('auth-submit');
-  if (!supabase) { message.textContent = 'Falta configurar Supabase. Añade la URL y la clave pública en Vercel.'; message.classList.add('error'); return; }
+  if (!supabase) { message.textContent = 'Falta configurar Supabase. Añade la URL y la clave pública en Netlify.'; message.classList.add('error'); return; }
   submit.setAttribute('disabled', 'true'); message.textContent = 'Un momento…'; message.classList.remove('error');
   const result = signUpMode ? await supabase.auth.signUp({ email, password }) : await supabase.auth.signInWithPassword({ email, password });
   submit.removeAttribute('disabled');

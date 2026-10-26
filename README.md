@@ -1,6 +1,6 @@
 # WHOOP Marlon — WHOOP 4.0 en Bluefy + Supabase
 
-Panel web estático para abrir desde **Bluefy en el iPhone**. Vercel publica la web por HTTPS; la conexión Bluetooth se inicia desde el botón de la página. Las muestras que el navegador entiende se guardan en Supabase bajo la cuenta autenticada del dueño.
+Panel web estático para abrir desde **Bluefy en el iPhone**. Netlify publica la web por HTTPS; la conexión Bluetooth se inicia desde el botón de la página. Las muestras que el navegador entiende se guardan en Supabase bajo la cuenta autenticada del dueño.
 
 ## Estado y límites claros
 
@@ -13,17 +13,17 @@ Panel web estático para abrir desde **Bluefy en el iPhone**. Vercel publica la 
 1. Instala Node.js LTS en la Mac.
 2. En esta carpeta: `npm install`.
 3. Copia `.env.example` a `.env.local` y rellena URL y clave pública de Supabase.
-4. Ejecuta `npm run dev`; abre el enlace HTTPS/local indicado desde un navegador compatible. Para probar desde Bluefy, despliega a Vercel, que provee HTTPS.
+4. Ejecuta `npm run dev`; abre el enlace HTTPS/local indicado desde un navegador compatible. Para probar desde Bluefy, despliega a Netlify, que provee HTTPS.
 
 ## Supabase
 
 1. Crea un proyecto y ejecuta `supabase/schema.sql` en SQL Editor.
 2. En Project Settings → API, toma **Project URL** y la **publishable key** (`sb_publishable_...`).
-3. En Vercel configura `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` como variables de entorno de build. La app también acepta `VITE_SUPABASE_ANON_KEY` para proyectos que aún usan la clave pública legacy.
+3. En Netlify configura `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` como variables de entorno de build. La app también acepta `VITE_SUPABASE_ANON_KEY` para proyectos que aún usan la clave pública legacy.
 4. La persona dueña crea su usuario con su propio correo/contraseña en el panel. Supabase Auth puede requerir confirmar el correo.
 
 La clave pública (`sb_publishable_...`) o legacy `anon` se puede usar en el navegador porque RLS limita el acceso a `auth.uid()`. **Nunca poner aquí la `service_role`/secret key, contraseña de base de datos ni token privado.**
 
-## Vercel
+## Netlify
 
-Importa el repositorio `mywhoop` desde GitHub en Vercel. La configuración usa Vite, `npm run build` y la carpeta de salida `dist`. Añade `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` (o `VITE_SUPABASE_ANON_KEY`) en **Project Settings → Environment Variables** y despliega. Abre la URL `https://...vercel.app` dentro de Bluefy en el iPhone.
+Importa el repositorio `mywhoop` desde GitHub en Netlify (**Add new site → Import an existing project**). La configuración de `netlify.toml` usa `npm run build` y la carpeta de salida `dist`. Añade `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` (o `VITE_SUPABASE_ANON_KEY`) en **Site configuration → Environment variables** y despliega. Abre la URL `https://...netlify.app` dentro de Bluefy en el iPhone.
