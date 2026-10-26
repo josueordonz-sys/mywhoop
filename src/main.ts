@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient, type User } from '@supabase/supabase
 import './style.css';
 
 const WHOOP_SERVICE = '61080001-8d6d-82b8-614a-1c8cb0f8dcc6';
+const WHOOP_CMD_WRITE = '61080002-8d6d-82b8-614a-1c8cb0f8dcc6';
 const WHOOP_DATA = '61080005-8d6d-82b8-614a-1c8cb0f8dcc6';
 const HR_SERVICE = '0000180d-0000-1000-8000-00805f9b34fb';
 const HR_CHAR = '00002a37-0000-1000-8000-00805f9b34fb';
@@ -72,6 +73,30 @@ app.innerHTML = `
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const setText = (id: string, text: string) => { $(id).textContent = text; };
+function crc8(bytes: number[]) {
+  let crc = 0;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc & 0x80) ? ((crc << 1) ^ 0x07) & 0xff : (crc << 1) & 0xff;
+  }
+  return crc;
+}
+function crc32(bytes: number[]) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc & 1) ? (0xedb88320 ^ (crc >>> 1)) : (crc >>> 1);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+function whoop4CommandFrame(sequence: number, command: number, payload: number[]) {
+  const inner = [35, sequence & 0xff, command & 0xff, ...payload];
+  const length = inner.length + 4;
+  const lengthBytes = [length & 0xff, (length >>> 8) & 0xff];
+  const checksum = crc32(inner);
+  return new Uint8Array([0xaa, ...lengthBytes, crc8(lengthBytes), ...inner,
+    checksum & 0xff, (checksum >>> 8) & 0xff, (checksum >>> 16) & 0xff, (checksum >>> 24) & 0xff]);
+}
 let currentUser: User | null = null;
 let device: any = null;
 let connectWatchdog: number | undefined;
@@ -212,6 +237,24 @@ async function connectBand() {
     cloudBadge(currentUser ? 'Nube: sincronizando' : 'Nube: inicia sesión', !!currentUser);
     let hasHeartRate = false;
     let hasBattery = false;
+    let pairingCommandSent = false;
+    let whoopService: any = null;
+    try {
+      whoopService = await server.getPrimaryService(WHOOP_SERVICE);
+      const commandCharacteristic = await whoopService.getCharacteristic(WHOOP_CMD_WRITE);
+      if (!commandCharacteristic.properties.write) throw new Error('La banda no anunció escritura con respuesta para el canal de emparejamiento.');
+      const frame = whoop4CommandFrame(1, 26, [0x00]); // GET_BATTERY_LEVEL: lectura inocua usada por el cliente nativo para iniciar el bonding.
+      if (typeof commandCharacteristic.writeValueWithResponse === 'function') {
+        await commandCharacteristic.writeValueWithResponse(frame);
+      } else if (typeof commandCharacteristic.writeValue === 'function') {
+        await commandCharacteristic.writeValue(frame);
+      } else {
+        throw new Error('Bluefy no ofrece escritura BLE con respuesta.');
+      }
+      pairingCommandSent = true;
+      setBleStatus('enlace WHOOP autorizado', 'connected');
+      setText('connection-copy', 'Enlace Bluetooth activo. Se solicitó emparejamiento WHOOP; revisa si Bluefy muestra una confirmación.');
+    } catch (error) { console.info('No se completó el paso de emparejamiento WHOOP 4.0', error); }
     try {
       const service = await server.getPrimaryService(HR_SERVICE);
       const characteristic = await service.getCharacteristic(HR_CHAR);
@@ -226,7 +269,7 @@ async function connectBand() {
       if (characteristic.readValue) onBattery({ target: { value: await characteristic.readValue() } } as unknown as Event);
     } catch (error) { console.info('Servicio de batería estándar no disponible', error); }
     try {
-      const service = await server.getPrimaryService(WHOOP_SERVICE);
+      const service = whoopService || await server.getPrimaryService(WHOOP_SERVICE);
       const characteristic = await service.getCharacteristic(WHOOP_DATA);
       await characteristic.startNotifications();
       characteristic.addEventListener('characteristicvaluechanged', (event: Event) => {
@@ -237,7 +280,7 @@ async function connectBand() {
     } catch (error) { console.info('Canal propietario WHOOP 4 no accesible desde este navegador', error); }
     if (!connected) return;
     setBleStatus('conectado', 'connected');
-    setText('connection-copy', `WHOOP conectada. Pulso: ${hasHeartRate ? 'disponible' : 'no expuesto'} · batería: ${hasBattery ? 'disponible' : 'no expuesta'}.`);
+    setText('connection-copy', `WHOOP conectada. Pulso: ${hasHeartRate ? 'disponible' : 'no expuesto'} · batería: ${hasBattery ? 'disponible' : 'no expuesta'} · emparejamiento: ${pairingCommandSent ? 'solicitado' : 'no completado'}.`);
     setText('last-updated', 'Conectada · esperando lecturas');
   } catch (error: any) {
     console.error(error); button.removeAttribute('disabled');
