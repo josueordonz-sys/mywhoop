@@ -74,7 +74,9 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const setText = (id: string, text: string) => { $(id).textContent = text; };
 let currentUser: User | null = null;
 let device: any = null;
+let connectWatchdog: number | undefined;
 let connected = false;
+let retryNeedsReload = false;
 let signUpMode = false;
 const queue: Array<{ metric: string; value: number; unit: string; recorded_at: string; source: string }> = [];
 const lastSavedAt = new Map<string, number>();
@@ -176,6 +178,7 @@ async function connectBand() {
     setText('connection-note', 'El sitio debe estar publicado por HTTPS y abierto dentro de Bluefy.'); return;
   }
   const button = $('connect-button'); button.setAttribute('disabled', 'true');
+  retryNeedsReload = false;
   setBleStatus('buscando bandas cercanas…', 'pending');
   setText('connection-copy', 'Selecciona WHOOP en el selector Bluetooth de Bluefy.');
   try {
@@ -189,7 +192,19 @@ async function connectBand() {
       setText('connection-copy', 'Banda desconectada. Acércala y vuelve a conectar.');
       cloudBadge(currentUser ? 'Nube lista' : 'Nube: inicia sesión', !!currentUser);
     });
-    const server = await device.gatt.connect(); connected = true;
+    let connectTimedOut = false;
+    connectWatchdog = window.setTimeout(() => {
+      if (connected || device?.gatt?.connected) return;
+      connectTimedOut = true; retryNeedsReload = true;
+      setBleStatus('la banda no respondió', 'error');
+      setText('connection-copy', 'Bluefy encontró WHOOP, pero no completó el enlace en 20 segundos. Cierra la app WHOOP en este iPhone, acerca la banda, recarga la página y prueba otra vez.');
+      setText('connection-note', 'No elimines ni restablezcas la banda desde los ajustes de Bluetooth.');
+      button.removeAttribute('disabled'); button.innerHTML = 'Recargar para reintentar';
+    }, 20_000);
+    const server = await device.gatt.connect();
+    window.clearTimeout(connectWatchdog); connectWatchdog = undefined;
+    if (connectTimedOut || retryNeedsReload) { device.gatt.disconnect(); return; }
+    connected = true;
     $('connect-button').innerHTML = '<span class="button-icon">✓</span> Conectada';
     setBleStatus('conectado · revisando sensores…', 'connected');
     setText('connection-copy', 'Enlace Bluetooth activo. Comprobando si la banda comparte pulso y batería.');
@@ -226,6 +241,8 @@ async function connectBand() {
     setText('last-updated', 'Conectada · esperando lecturas');
   } catch (error: any) {
     console.error(error); button.removeAttribute('disabled');
+    if (connectWatchdog !== undefined) { window.clearTimeout(connectWatchdog); connectWatchdog = undefined; }
+    if (retryNeedsReload) { cloudBadge('Nube: sin sincronizar'); return; }
     setBleStatus('no conectada', 'error');
     if (error?.name === 'NotFoundError') setText('connection-copy', 'No se seleccionó ninguna banda. Asegúrate de que está cerca.');
     else setText('connection-copy', `No se pudo completar el enlace: ${error?.message || 'revisa Bluetooth en Bluefy'}`);
@@ -233,7 +250,10 @@ async function connectBand() {
   }
 }
 
-$('connect-button').addEventListener('click', () => void connectBand());
+$('connect-button').addEventListener('click', () => {
+  if (retryNeedsReload) { window.location.reload(); return; }
+  void connectBand();
+});
 $('account-open').addEventListener('click', () => openModal('auth-modal'));
 $('refresh-button').addEventListener('click', () => void refreshHistory());
 $('about-button').addEventListener('click', () => openModal('info-modal'));
