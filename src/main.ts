@@ -30,7 +30,7 @@ app.innerHTML = `
     <section class="connect-card card">
       <div class="connect-copy">
         <div class="device-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l1 5-1 8-1 5H9l-1-5-1-8 1-5Z"/><path d="M8 8h8M8 16h8"/></svg></div>
-        <div><div class="label">DISPOSITIVO</div><h2 id="device-name">WHOOP 4.0</h2><p id="connection-copy">Acerca la banda al iPhone y toca conectar.</p></div>
+        <div><div class="label">DISPOSITIVO</div><h2 id="device-name">WHOOP 4.0</h2><p id="connection-copy">Acerca la banda al iPhone y toca conectar.</p><div id="ble-status" class="ble-status" data-state="idle"><i></i><span>Bluetooth: desconectado</span></div></div>
       </div>
       <button id="connect-button" class="button button-primary"><span class="button-icon">↗</span> Conectar banda</button>
       <div id="connection-note" class="connection-note">Abre esta página en Bluefy. iPhone Safari no puede pedir acceso Bluetooth.</div>
@@ -82,6 +82,10 @@ const saveEveryMs: Record<string, number> = { heart_rate: 30_000, rr_interval: 3
 
 function cloudBadge(text: string, good = false) {
   const el = $('cloud-state'); el.innerHTML = `<i></i>${text}`; el.classList.toggle('ready', good);
+}
+function setBleStatus(text: string, state: 'idle' | 'pending' | 'connected' | 'error' | 'data') {
+  const el = $('ble-status'); el.dataset.state = state;
+  el.querySelector('span')!.textContent = `Bluetooth: ${text}`;
 }
 function openModal(id: string) { $(id).classList.remove('hidden'); }
 function closeModal(id: string) { $(id).classList.add('hidden'); }
@@ -148,6 +152,7 @@ function onHeartRate(event: Event) {
   else { bpm = value.getUint8(1); offset = 2; }
   if (bpm >= 30 && bpm <= 240) {
     setText('hr-value', String(bpm)); setText('hr-status', 'En vivo'); $('hr-status').classList.add('live');
+    setBleStatus('conectado · recibiendo pulso', 'data');
     enqueue('heart_rate', bpm, 'bpm');
   }
   if (flags & 0x10 && value.byteLength >= offset + 2) {
@@ -166,30 +171,43 @@ function onBattery(event: Event) {
 async function connectBand() {
   const bluetooth = (navigator as any).bluetooth;
   if (!bluetooth) {
+    setBleStatus('no disponible en este navegador', 'error');
     setText('connection-copy', 'Bluefy no expuso Bluetooth a esta página. Ábrela dentro de Bluefy y vuelve a intentar.');
     setText('connection-note', 'El sitio debe estar publicado por HTTPS y abierto dentro de Bluefy.'); return;
   }
-  const button = $('connect-button'); button.setAttribute('disabled', 'true'); setText('connection-copy', 'Buscando bandas WHOOP cercanas…');
+  const button = $('connect-button'); button.setAttribute('disabled', 'true');
+  setBleStatus('buscando bandas cercanas…', 'pending');
+  setText('connection-copy', 'Selecciona WHOOP en el selector Bluetooth de Bluefy.');
   try {
     device = await bluetooth.requestDevice({ filters: [{ namePrefix: 'WHOOP' }], optionalServices: [WHOOP_SERVICE, HR_SERVICE, BATTERY_SERVICE] });
+    setText('device-name', device.name || 'WHOOP');
+    setBleStatus('banda elegida · conectando…', 'pending');
+    setText('connection-copy', 'WHOOP seleccionada. Esperando que se complete el enlace Bluetooth…');
     device.addEventListener('gattserverdisconnected', () => {
-      connected = false; $('connect-button').removeAttribute('disabled'); $('connect-button').innerHTML = '<span class="button-icon">↗</span> Conectar banda';
-      setText('connection-copy', 'Banda desconectada. Acércala y vuelve a conectar.'); cloudBadge(currentUser ? 'Esperando conexión' : 'Sin sincronizar');
+      connected = false; setBleStatus('desconectado', 'idle');
+      $('connect-button').removeAttribute('disabled'); $('connect-button').innerHTML = '<span class="button-icon">↗</span> Conectar banda';
+      setText('connection-copy', 'Banda desconectada. Acércala y vuelve a conectar.');
+      cloudBadge(currentUser ? 'Nube lista' : 'Nube: inicia sesión', !!currentUser);
     });
     const server = await device.gatt.connect(); connected = true;
     $('connect-button').innerHTML = '<span class="button-icon">✓</span> Conectada';
-    setText('device-name', device.name || 'WHOOP'); setText('connection-copy', 'Conectada. Deja Bluefy abierto cerca de la banda.');
-    setText('connection-note', 'Las lecturas disponibles se guardarán en la cuenta cuando inicies sesión.');
-    cloudBadge(currentUser ? 'Sincronizando' : 'Conectada · inicia sesión');
+    setBleStatus('conectado · revisando sensores…', 'connected');
+    setText('connection-copy', 'Enlace Bluetooth activo. Comprobando si la banda comparte pulso y batería.');
+    setText('connection-note', 'Mantén Bluefy abierto y la banda cerca mientras llegan lecturas.');
+    cloudBadge(currentUser ? 'Nube: sincronizando' : 'Nube: inicia sesión', !!currentUser);
+    let hasHeartRate = false;
+    let hasBattery = false;
     try {
       const service = await server.getPrimaryService(HR_SERVICE);
       const characteristic = await service.getCharacteristic(HR_CHAR);
       await characteristic.startNotifications(); characteristic.addEventListener('characteristicvaluechanged', onHeartRate);
+      hasHeartRate = true;
     } catch (error) { console.info('Servicio de pulso estándar no disponible', error); }
     try {
       const service = await server.getPrimaryService(BATTERY_SERVICE);
       const characteristic = await service.getCharacteristic(BATTERY_CHAR);
       await characteristic.startNotifications(); characteristic.addEventListener('characteristicvaluechanged', onBattery);
+      hasBattery = true;
       if (characteristic.readValue) onBattery({ target: { value: await characteristic.readValue() } } as unknown as Event);
     } catch (error) { console.info('Servicio de batería estándar no disponible', error); }
     try {
@@ -203,12 +221,15 @@ async function connectBand() {
       });
     } catch (error) { console.info('Canal propietario WHOOP 4 no accesible desde este navegador', error); }
     if (!connected) return;
+    setBleStatus('conectado', 'connected');
+    setText('connection-copy', `WHOOP conectada. Pulso: ${hasHeartRate ? 'disponible' : 'no expuesto'} · batería: ${hasBattery ? 'disponible' : 'no expuesta'}.`);
     setText('last-updated', 'Conectada · esperando lecturas');
   } catch (error: any) {
     console.error(error); button.removeAttribute('disabled');
+    setBleStatus('no conectada', 'error');
     if (error?.name === 'NotFoundError') setText('connection-copy', 'No se seleccionó ninguna banda. Asegúrate de que está cerca.');
-    else setText('connection-copy', `No se pudo conectar: ${error?.message || 'revisa permisos Bluetooth en Bluefy'}`);
-    cloudBadge('Sin conexión');
+    else setText('connection-copy', `No se pudo completar el enlace: ${error?.message || 'revisa Bluetooth en Bluefy'}`);
+    cloudBadge('Nube: sin sincronizar');
   }
 }
 
